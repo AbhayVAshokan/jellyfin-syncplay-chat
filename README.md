@@ -1,6 +1,6 @@
 # So you want to make a Jellyfin plugin
 
-Awesome! This guide is for you. Jellyfin plugins are written using the dotnet standard framework. What that means is you can write them in any language that implements the CLI or the DLI and can compile to net8.0. The examples on this page are in C# because that is what most of Jellyfin is written in, but F#, Visual Basic, and IronPython should all be compatible once compiled.
+Awesome! This guide is for you. Jellyfin plugins are written using the dotnet standard framework. What that means is you can write them in any language that implements the CLI or the DLI and can compile to net9.0. The examples on this page are in C# because that is what most of Jellyfin is written in, but F#, Visual Basic, and IronPython should all be compatible once compiled.
 
 ## 0. Things you need to get started
 
@@ -18,7 +18,7 @@ Awesome! This guide is for you. Jellyfin plugins are written using the dotnet st
 
 We have a number of quickstart options available to speed you along the way.
 
-- [Download the Example Plugin Project](https://github.com/jellyfin/jellyfin-plugin-template/tree/master/Jellyfin.Plugin.Template) from this repository, open it in your IDE and go to [step 3](https://github.com/jellyfin/jellyfin-plugin-template#3-customize-plugin-information)
+- [Download the Example Plugin Project](https://github.com/jellyfin/jellyfin-plugin-template/tree/master/Jellyfin.Plugin.Template) from the template repository, open it in your IDE and go to [step 3](https://github.com/jellyfin/jellyfin-plugin-template#3-customize-plugin-information)
 
 - Install our dotnet template by [downloading the dotnet-template/content folder from this repo](https://github.com/jellyfin/jellyfin-plugin-template/tree/master/dotnet-template/content) or off of Nuget (Coming soon)
 
@@ -246,7 +246,7 @@ This example expects you to clone `jellyfin`, `jellyfin-web` and `jellyfin-plugi
         // ${env:LOCALAPPDATA}/jellyfin
         "jellyfinDataDir" : "${env:LOCALAPPDATA}/jellyfin",
         // The name of the plugin
-        "pluginName" : "Jellyfin.Plugin.Template",
+        "pluginName" : "Jellyfin.Plugin.SyncPlayChat",
     }
    ```
 
@@ -262,7 +262,7 @@ This example expects you to clone `jellyfin`, `jellyfin-web` and `jellyfin-plugi
                 "name": "Launch",
                 "request": "launch",
                 "preLaunchTask": "build-and-copy",
-                "program": "${config:jellyfinDir}/bin/Debug/net8.0/jellyfin.dll",
+                "program": "${config:jellyfinDir}/bin/Debug/net9.0/jellyfin.dll",
                 "args": [
                 //"--nowebclient"
                 "--webdir",
@@ -330,7 +330,7 @@ This example expects you to clone `jellyfin`, `jellyfin-web` and `jellyfin-plugi
                 "type": "shell",
                 "command": "cp",
                 "args": [
-                "./${config:pluginName}/bin/Debug/net8.0/publish/*",
+                "./${config:pluginName}/bin/Debug/net9.0/publish/*",
                 "${config:jellyfinDataDir}/plugins/${config:pluginName}/"
                 ]
 
@@ -398,7 +398,7 @@ This example expects you to clone `jellyfin`, `jellyfin-web` and `jellyfin-plugi
                 "type": "shell",
                 "command": "cp",
                 "args": [
-                "./${config:pluginName}/bin/Debug/net8.0/publish/*",
+                "./${config:pluginName}/bin/Debug/net9.0/publish/*",
                 "${config:jellyfinDataDir}/plugins/${config:pluginName}/"
                 ]
             },
