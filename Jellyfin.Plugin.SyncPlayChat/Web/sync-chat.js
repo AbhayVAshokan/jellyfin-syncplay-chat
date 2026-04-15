@@ -60,8 +60,13 @@
         button.id = buttonId;
         button.type = 'button';
         button.className = 'emby-button ' + markerClass;
-        button.textContent = 'Chat';
-        button.style.padding = '0.4rem 0.8rem';
+        button.setAttribute('aria-label', 'SyncPlay chat');
+        button.title = 'SyncPlay chat';
+        button.innerHTML = '<svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true" focusable="false"><path fill="currentColor" d="M4 4h16v11H8l-4 4V4z"/></svg>';
+        button.style.display = 'inline-flex';
+        button.style.alignItems = 'center';
+        button.style.justifyContent = 'center';
+        button.style.padding = '0.48rem 0.92rem';
         button.style.borderRadius = '0.6rem';
         button.style.background = 'rgba(0, 0, 0, 0.7)';
         button.style.color = '#fff';
