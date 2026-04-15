@@ -105,9 +105,12 @@
         input.wrap = 'soft';
         input.style.width = '15rem';
         input.style.maxWidth = '54vw';
-        input.style.minHeight = '2.2rem';
+        input.style.minHeight = '2rem';
+        input.style.height = '2rem';
         input.style.maxHeight = '7rem';
         input.style.padding = '0.35rem 0.55rem';
+        input.style.lineHeight = '1.2rem';
+        input.style.boxSizing = 'border-box';
         input.style.borderRadius = '0.45rem';
         input.style.border = '1px solid rgba(255, 255, 255, 0.25)';
         input.style.background = 'rgba(20, 20, 20, 0.8)';
@@ -153,6 +156,10 @@
             event.stopPropagation();
         });
 
+        input.addEventListener('input', function () {
+            autoResizeComposerInput();
+        });
+
         composer.appendChild(input);
         composer.appendChild(sendButton);
         return composer;
@@ -167,6 +174,19 @@
         composer = createComposer();
         host.appendChild(composer);
         return composer;
+    }
+
+    function autoResizeComposerInput() {
+        const input = document.getElementById(inputId);
+        if (!input) {
+            return;
+        }
+
+        input.style.height = 'auto';
+        const minHeightPx = 32;
+        const maxHeightPx = 112;
+        const nextHeight = Math.max(minHeightPx, Math.min(maxHeightPx, input.scrollHeight));
+        input.style.height = String(nextHeight) + 'px';
     }
 
     function setComposerBusy(isBusy) {
@@ -209,6 +229,7 @@
             const input = document.getElementById(inputId);
             if (input) {
                 window.setTimeout(function () {
+                    autoResizeComposerInput();
                     input.focus();
                 }, 0);
             }
@@ -228,6 +249,7 @@
         const input = document.getElementById(inputId);
         if (input) {
             input.value = '';
+            autoResizeComposerInput();
         }
     }
 
@@ -417,9 +439,7 @@
                 return false;
             }
 
-            return normalizedActual === normalizedExpected
-                || normalizedActual.indexOf(normalizedExpected) !== -1
-                || normalizedExpected.indexOf(normalizedActual) !== -1;
+            return normalizedActual === normalizedExpected;
         }
 
         if (Array.isArray(value)) {
@@ -784,6 +804,206 @@
         return matchingIds;
     }
 
+    function findGroupsByGroupIds(groups, groupIds) {
+        if (!groups.length || !groupIds.length) {
+            return [];
+        }
+
+        const normalizedGroupIds = groupIds.map(normalizeId).filter(Boolean);
+        return groups.filter(function (group) {
+            return normalizedGroupIds.indexOf(normalizeId(resolveSyncPlayGroupId(group))) !== -1;
+        });
+    }
+
+    function mergeSessionsUnique(primary, secondary) {
+        const map = {};
+
+        (primary || []).forEach(function (session) {
+            const id = session && session.Id;
+            if (typeof id === 'string' && id.length > 0) {
+                map[id] = session;
+            }
+        });
+
+        (secondary || []).forEach(function (session) {
+            const id = session && session.Id;
+            if (typeof id === 'string' && id.length > 0 && !map[id]) {
+                map[id] = session;
+            }
+        });
+
+        return Object.keys(map).map(function (id) {
+            return map[id];
+        });
+    }
+
+    function extractParticipantTokens(groups) {
+        const userIds = [];
+        const userNames = [];
+
+        groups.forEach(function (group) {
+            if (!group || !Array.isArray(group.Participants)) {
+                return;
+            }
+
+            group.Participants.forEach(function (participant) {
+                if (typeof participant === 'string' && participant.length > 0) {
+                    if (isLikelySessionId(participant)) {
+                        if (userIds.indexOf(participant) === -1) {
+                            userIds.push(participant);
+                        }
+                        return;
+                    }
+
+                    if (userNames.indexOf(participant) === -1) {
+                        userNames.push(participant);
+                    }
+                    return;
+                }
+
+                if (!participant || typeof participant !== 'object') {
+                    return;
+                }
+
+                const participantUserId = participant.UserId || (participant.User && participant.User.Id) || '';
+                if (typeof participantUserId === 'string' && participantUserId.length > 0 && userIds.indexOf(participantUserId) === -1) {
+                    userIds.push(participantUserId);
+                }
+
+                const participantUserName = participant.UserName || (participant.User && participant.User.Name) || '';
+                if (typeof participantUserName === 'string' && participantUserName.length > 0 && userNames.indexOf(participantUserName) === -1) {
+                    userNames.push(participantUserName);
+                }
+            });
+        });
+
+        return {
+            userIds: userIds,
+            userNames: userNames
+        };
+    }
+
+    async function fetchSessionsForUserIds(userIds) {
+        const sessionsById = {};
+
+        for (let i = 0; i < userIds.length; i += 1) {
+            const userId = userIds[i];
+            if (!userId) {
+                continue;
+            }
+
+            try {
+                const response = await fetchJson('Sessions?UserId=' + encodeURIComponent(userId));
+                const sessions = normalizeSessionsResponse(response);
+                sessions.forEach(function (session) {
+                    const sessionId = session && session.Id;
+                    if (typeof sessionId === 'string' && sessionId.length > 0) {
+                        sessionsById[sessionId] = session;
+                    }
+                });
+            } catch (err) {
+                logDebug('Failed to fetch participant sessions by user ID', { userId: userId, error: err });
+            }
+        }
+
+        return Object.keys(sessionsById).map(function (id) {
+            return sessionsById[id];
+        });
+    }
+
+    function buildCurrentIdentityTokens(sessions) {
+        const tokens = [];
+
+        getCurrentUserIds().forEach(function (id) {
+            if (id && tokens.indexOf(id) === -1) {
+                tokens.push(id);
+            }
+        });
+
+        const currentUserName = getCurrentUserName();
+        if (currentUserName && tokens.indexOf(currentUserName) === -1) {
+            tokens.push(currentUserName);
+        }
+
+        getCurrentSessionIds(sessions).forEach(function (sessionId) {
+            if (sessionId && tokens.indexOf(sessionId) === -1) {
+                tokens.push(sessionId);
+            }
+        });
+
+        sessions
+            .filter(matchesCurrentUser)
+            .forEach(function (session) {
+                const userName = (session && session.UserName)
+                    || (session && session.User && session.User.Name)
+                    || '';
+                if (userName && tokens.indexOf(userName) === -1) {
+                    tokens.push(userName);
+                }
+            });
+
+        return tokens;
+    }
+
+    function payloadContainsAnyIdentity(payload, identityTokens) {
+        if (!payload || !identityTokens.length) {
+            return false;
+        }
+
+        return identityTokens.some(function (token) {
+            return objectContainsString(payload, token);
+        });
+    }
+
+    function hasIntersection(left, right) {
+        if (!left.length || !right.length) {
+            return false;
+        }
+
+        const rightLookup = {};
+        right.forEach(function (value) {
+            rightLookup[normalizeId(value)] = true;
+        });
+
+        return left.some(function (value) {
+            return !!rightLookup[normalizeId(value)];
+        });
+    }
+
+    async function isCurrentUserInGroupsViaDetails(groups, sessions) {
+        const localSessionIds = getCurrentSessionIds(sessions);
+        const identityTokens = buildCurrentIdentityTokens(sessions);
+        if (!localSessionIds.length || !groups.length) {
+            return false;
+        }
+
+        const groupIds = getGroupIdsForCurrentUserSessions(sessions);
+        const scopedGroups = findGroupsByGroupIds(groups, groupIds);
+        const groupsForLookup = scopedGroups.length > 0 ? scopedGroups : groups;
+        const groupDetailPayloads = await fetchSyncPlayGroupDetails(groupsForLookup);
+
+        const sessionIdsFromGroupDetails = [];
+        let matchedIdentityInDetails = false;
+        groupDetailPayloads.forEach(function (groupDetail) {
+            if (!matchedIdentityInDetails && payloadContainsAnyIdentity(groupDetail, identityTokens)) {
+                matchedIdentityInDetails = true;
+            }
+
+            extractLikelySessionIdsFromGroup(groupDetail).forEach(function (id) {
+                if (sessionIdsFromGroupDetails.indexOf(id) === -1) {
+                    sessionIdsFromGroupDetails.push(id);
+                }
+            });
+        });
+
+        const knownSessionIds = filterSessionIdsToKnownSessions(sessionIdsFromGroupDetails, sessions);
+        if (hasIntersection(localSessionIds, knownSessionIds)) {
+            return true;
+        }
+
+        return matchedIdentityInDetails;
+    }
+
     function showLocalToast(text, title) {
         if (window.toastr && typeof window.toastr.info === 'function') {
             window.toastr.info(text, title || 'SyncPlay Chat');
@@ -869,12 +1089,25 @@
             const groupIds = getGroupIdsForCurrentUserSessions(sessions);
             const sessionIdsFromSessionGroup = findSessionIdsByGroupIds(sessions, groupIds);
             const sessionIdsFromGroupPayload = findSessionIdsInGroupPayload(groups, sessions);
+            const groupsBySessionGroupIds = findGroupsByGroupIds(groups, groupIds);
             const relevantGroups = groups.filter(function (group) {
                 return groupsContainCurrentUser([group], sessions);
             });
-            const groupsForDetailLookup = relevantGroups.length > 0 ? relevantGroups : groups;
+            let groupsForDetailLookup = [];
+
+            if (groupsBySessionGroupIds.length > 0) {
+                groupsForDetailLookup = groupsBySessionGroupIds;
+            } else if (relevantGroups.length > 0) {
+                groupsForDetailLookup = relevantGroups;
+            } else if (groups.length === 1) {
+                groupsForDetailLookup = [groups[0]];
+            }
 
             const groupDetailPayloads = await fetchSyncPlayGroupDetails(groupsForDetailLookup);
+
+            const participantTokens = extractParticipantTokens(groupDetailPayloads);
+            const participantSessions = await fetchSessionsForUserIds(participantTokens.userIds);
+            const allKnownSessions = mergeSessionsUnique(sessions, participantSessions);
 
             const sessionIdsFromGroupDetails = [];
             groupDetailPayloads.forEach(function (groupDetail) {
@@ -884,7 +1117,19 @@
                     }
                 });
             });
-            const sessionIdsFromGroupDetailsKnown = filterSessionIdsToKnownSessions(sessionIdsFromGroupDetails, sessions);
+            const sessionIdsFromGroupDetailsKnown = filterSessionIdsToKnownSessions(sessionIdsFromGroupDetails, allKnownSessions);
+
+            const participantSessionIdsByName = allKnownSessions
+                .filter(function (session) {
+                    const sessionUserName = (session && session.UserName)
+                        || (session && session.User && session.User.Name)
+                        || '';
+                    return participantTokens.userNames.some(function (userName) {
+                        return normalizeId(userName) === normalizeId(sessionUserName);
+                    });
+                })
+                .map(function (session) { return session && session.Id; })
+                .filter(function (id) { return typeof id === 'string' && id.length > 0; });
 
             const localSessionIds = getCurrentSessionIds(sessions);
 
@@ -899,32 +1144,25 @@
                     targetSessionIds.push(id);
                 }
             });
+            participantSessionIdsByName.forEach(function (id) {
+                if (targetSessionIds.indexOf(id) === -1) {
+                    targetSessionIds.push(id);
+                }
+            });
             localSessionIds.forEach(function (id) {
                 if (targetSessionIds.indexOf(id) === -1) {
                     targetSessionIds.push(id);
                 }
             });
 
-            if (targetSessionIds.length <= localSessionIds.length) {
-                const otherSessionIds = sessions
-                    .filter(function (session) {
-                        return !matchesCurrentUser(session);
-                    })
-                    .map(function (session) { return session && session.Id; })
-                    .filter(function (id) { return typeof id === 'string' && id.length > 0; });
-
-                otherSessionIds.forEach(function (id) {
-                    if (targetSessionIds.indexOf(id) === -1) {
-                        targetSessionIds.push(id);
-                    }
-                });
-            }
-
             if (!targetSessionIds.length) {
                 logDebug('No target sessions resolved for sync chat send', {
                     sessionsCount: sessions.length,
                     groupsCount: groups.length,
                     groupIds: groupIds,
+                    groupsBySessionGroupIds: groupsBySessionGroupIds.length,
+                    relevantGroups: relevantGroups.length,
+                    groupsForDetailLookup: groupsForDetailLookup.length,
                     localSessionIds: localSessionIds,
                     resolvedTargets: targetSessionIds
                 });
@@ -951,21 +1189,13 @@
     }
 
     function groupsContainCurrentUser(groups, sessions) {
-        const currentUserIds = getCurrentUserIds().map(normalizeId).filter(Boolean);
-        const sessionIds = getCurrentSessionIds(sessions).map(normalizeId).filter(Boolean);
+        const identityTokens = buildCurrentIdentityTokens(sessions);
+        if (identityTokens.length === 0) {
+            return false;
+        }
 
         return groups.some(function (group) {
-            const hasCurrentUser = currentUserIds.some(function (id) {
-                return objectContainsString(group, id);
-            });
-
-            if (hasCurrentUser) {
-                return true;
-            }
-
-            return sessionIds.some(function (sessionId) {
-                return objectContainsString(group, sessionId);
-            });
+            return payloadContainsAnyIdentity(group, identityTokens);
         });
     }
 
@@ -1010,11 +1240,13 @@
         }
 
         const sessions = await fetchSessions();
-        if (sessions.length > 0) {
-            const matchingUserSessions = sessions.filter(matchesCurrentUser);
-            if (matchingUserSessions.length > 0 && matchingUserSessions.some(hasSyncPlayGroup)) {
-                return true;
-            }
+        const matchingUserSessions = sessions.filter(matchesCurrentUser);
+        if (matchingUserSessions.length === 0) {
+            return false;
+        }
+
+        if (matchingUserSessions.some(hasSyncPlayGroup)) {
+            return true;
         }
 
         try {
@@ -1025,8 +1257,7 @@
                     return true;
                 }
 
-                const matchingUserSessions = sessions.filter(matchesCurrentUser);
-                if (matchingUserSessions.length > 0) {
+                if (await isCurrentUserInGroupsViaDetails(groups, sessions)) {
                     return true;
                 }
             }
@@ -1034,6 +1265,9 @@
             logDebug('SyncPlay list request failed', err);
         }
 
+        logDebug('Current user not in any SyncPlay group', {
+            matchingUserSessions: matchingUserSessions.length
+        });
         return false;
     }
 
