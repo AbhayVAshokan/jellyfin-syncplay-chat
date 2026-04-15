@@ -4,6 +4,9 @@
     const buttonId = 'syncPlayChatButton';
     const markerClass = 'syncPlayChatButton';
     const floatingHostId = 'syncPlayChatFloatingHost';
+    const composerId = 'syncPlayChatComposer';
+    const inputId = 'syncPlayChatInput';
+    const sendButtonId = 'syncPlayChatSendButton';
     const refreshIntervalMs = 5000;
     let shouldShowButton = false;
     let refreshInProgress = false;
@@ -51,6 +54,7 @@
         host.style.bottom = '1rem';
         host.style.zIndex = '99999';
         host.style.display = 'flex';
+        host.style.alignItems = 'flex-end';
         host.style.gap = '0.5rem';
         document.body.appendChild(host);
         return host;
@@ -67,6 +71,8 @@
         button.style.display = 'inline-flex';
         button.style.alignItems = 'center';
         button.style.justifyContent = 'center';
+        button.style.flex = '0 0 auto';
+        button.style.alignSelf = 'flex-end';
         button.style.padding = '0.48rem 0.92rem';
         button.style.borderRadius = '0.6rem';
         button.style.background = 'rgba(0, 0, 0, 0.7)';
@@ -75,9 +81,163 @@
         button.style.fontSize = '0.9rem';
         button.style.cursor = 'pointer';
         button.addEventListener('click', function () {
-            onChatButtonClick(button);
+            toggleComposer(button);
         });
         return button;
+    }
+
+    function createComposer() {
+        const composer = document.createElement('div');
+        composer.id = composerId;
+        composer.style.display = 'none';
+        composer.style.alignItems = 'center';
+        composer.style.gap = '0.45rem';
+        composer.style.padding = '0.45rem';
+        composer.style.borderRadius = '0.6rem';
+        composer.style.background = 'rgba(0, 0, 0, 0.7)';
+        composer.style.border = '1px solid rgba(255, 255, 255, 0.25)';
+
+        const input = document.createElement('textarea');
+        input.id = inputId;
+        input.rows = 1;
+        input.placeholder = 'Type a message';
+        input.setAttribute('aria-label', 'SyncPlay chat message');
+        input.wrap = 'soft';
+        input.style.width = '15rem';
+        input.style.maxWidth = '54vw';
+        input.style.minHeight = '2.2rem';
+        input.style.maxHeight = '7rem';
+        input.style.padding = '0.35rem 0.55rem';
+        input.style.borderRadius = '0.45rem';
+        input.style.border = '1px solid rgba(255, 255, 255, 0.25)';
+        input.style.background = 'rgba(20, 20, 20, 0.8)';
+        input.style.color = '#fff';
+        input.style.resize = 'none';
+        input.style.overflowX = 'hidden';
+        input.style.overflowY = 'auto';
+        input.style.whiteSpace = 'pre-wrap';
+        input.style.wordBreak = 'break-word';
+
+        const sendButton = document.createElement('button');
+        sendButton.id = sendButtonId;
+        sendButton.type = 'button';
+        sendButton.className = 'emby-button';
+        sendButton.textContent = 'Send';
+        sendButton.style.padding = '0.36rem 0.65rem';
+        sendButton.style.borderRadius = '0.45rem';
+        sendButton.style.background = 'rgba(255, 255, 255, 0.18)';
+        sendButton.style.color = '#fff';
+        sendButton.style.border = '1px solid rgba(255, 255, 255, 0.25)';
+        sendButton.style.cursor = 'pointer';
+
+        sendButton.addEventListener('click', function () {
+            sendComposerMessage();
+        });
+
+        input.addEventListener('keydown', function (event) {
+            event.stopPropagation();
+
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                sendComposerMessage();
+                return;
+            }
+
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                hideComposer();
+            }
+        });
+
+        input.addEventListener('keyup', function (event) {
+            event.stopPropagation();
+        });
+
+        composer.appendChild(input);
+        composer.appendChild(sendButton);
+        return composer;
+    }
+
+    function getOrCreateComposer(host) {
+        let composer = document.getElementById(composerId);
+        if (composer) {
+            return composer;
+        }
+
+        composer = createComposer();
+        host.appendChild(composer);
+        return composer;
+    }
+
+    function setComposerBusy(isBusy) {
+        const input = document.getElementById(inputId);
+        const sendButton = document.getElementById(sendButtonId);
+
+        if (input) {
+            input.disabled = isBusy;
+        }
+
+        if (sendButton) {
+            sendButton.disabled = isBusy;
+            sendButton.style.opacity = isBusy ? '0.75' : '1';
+        }
+    }
+
+    function hideComposer() {
+        const composer = document.getElementById(composerId);
+        if (composer) {
+            composer.style.display = 'none';
+        }
+    }
+
+    function toggleComposer(button) {
+        if (!shouldShowButton) {
+            return;
+        }
+
+        const host = getFloatingHost();
+        const composer = getOrCreateComposer(host);
+
+        const isVisible = composer.style.display !== 'none';
+        composer.style.display = isVisible ? 'none' : 'flex';
+
+        if (button) {
+            button.style.opacity = isVisible ? '1' : '0.85';
+        }
+
+        if (!isVisible) {
+            const input = document.getElementById(inputId);
+            if (input) {
+                window.setTimeout(function () {
+                    input.focus();
+                }, 0);
+            }
+        }
+    }
+
+    function getComposerMessageText() {
+        const input = document.getElementById(inputId);
+        if (!input) {
+            return '';
+        }
+
+        return (input.value || '').trim();
+    }
+
+    function clearComposerInput() {
+        const input = document.getElementById(inputId);
+        if (input) {
+            input.value = '';
+        }
+    }
+
+    function sendComposerMessage() {
+        const text = getComposerMessageText();
+        if (!text) {
+            return;
+        }
+
+        onChatButtonClick(text);
     }
 
     function extractSyncPlayGroupId(session) {
@@ -693,17 +853,20 @@
         };
     }
 
-    async function onChatButtonClick(button) {
+    async function onChatButtonClick(chatText) {
         if (sendInProgress) {
             logDebug('Ignoring click while previous send is in progress');
             return;
         }
 
-        sendInProgress = true;
-        if (button) {
-            button.disabled = true;
-            button.style.opacity = '0.75';
+        const trimmedText = typeof chatText === 'string' ? chatText.trim() : '';
+        if (!trimmedText) {
+            logDebug('Ignoring send because chat text is empty');
+            return;
         }
+
+        sendInProgress = true;
+        setComposerBusy(true);
 
         try {
             const sessions = await fetchSessions();
@@ -720,7 +883,7 @@
                 || (currentSession && currentSession.User && currentSession.User.Name)
                 || getCurrentUserName()
                 || 'Someone';
-            const messageText = senderName + ': Hello';
+            const messageText = senderName + ': ' + trimmedText;
 
             const groupIds = getGroupIdsForCurrentUserSessions(sessions);
             const sessionIdsFromSessionGroup = findSessionIdsByGroupIds(sessions, groupIds);
@@ -815,7 +978,10 @@
             const result = await sendMessageToSessions(targetSessionIds, messageText);
             logDebug('Sync chat send result', result);
 
-            if (result.sent === 0) {
+            if (result.sent > 0) {
+                clearComposerInput();
+                hideComposer();
+            } else {
                 showLocalToast('Failed to send SyncPlay chat message.');
             }
         } catch (err) {
@@ -823,10 +989,7 @@
             showLocalToast('Failed to send SyncPlay chat message.');
         } finally {
             sendInProgress = false;
-            if (button) {
-                button.disabled = false;
-                button.style.opacity = '1';
-            }
+            setComposerBusy(false);
         }
     }
 
@@ -961,6 +1124,8 @@
         }
 
         if (!shouldShowButton) {
+            hideComposer();
+
             if (controlHost) {
                 const controlButton = controlHost.querySelector('.' + markerClass);
                 if (controlButton) {
@@ -975,6 +1140,8 @@
 
             return;
         }
+
+        getOrCreateComposer(floatingHost);
 
         if (floatingHost.querySelector('.' + markerClass)) {
             return;
