@@ -27,9 +27,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Remove="Configuration\configPage.html" />
     <None Remove="Web\sync-chat.js" />
-    <EmbeddedResource Include="Configuration\configPage.html" />
     <EmbeddedResource Include="Web\sync-chat.js" />
   </ItemGroup>
 
