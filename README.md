@@ -1,6 +1,8 @@
 # Syncplay Chat
 
-`Syncplay Chat` adds an in-player chat button during SyncPlay sessions and sends chat messages as Jellyfin toasts to devices in the same SyncPlay group.
+`Syncplay Chat` adds a chat button during SyncPlay sessions and sends chat messages as Jellyfin toasts to devices in the same SyncPlay group.
+
+<video src="assets/recording.mp4" controls></video>
 
 ## Pre-requisites
 
@@ -8,6 +10,18 @@
 - .NET SDK 9.0 for building.
 - Jellyfin [File Transformation](https://github.com/IAmParadox27/jellyfin-plugin-file-transformation) plugin installed and enabled.
     - Without File Transformation, `sync-chat.js` will not be injected into the web client.
+
+## Installation
+
+1. In Jellyfin, go to Dashboard > Plugins > Catalog > ⚙️
+2. Click ➕ and give the repository a name (e.g., "Jellfin SyncPlay Chat").
+3. Set the Repository URL to:
+    ```
+    https://raw.githubusercontent.com/AbhayVAshokan/jellyfin-syncplay-chat/main/manifest.json
+    ```
+4. Click Save.
+5. Go to the Catalog tab, find `SyncPlay Chat` in the list, and click Install.
+6. Restart your Jellyfin server to complete the installation.
 
 ## Local Development Deploy
 
@@ -58,24 +72,27 @@ Then restart Jellyfin.
 
 ## Packaging for Repository Distribution
 
-1. Publish release output.
-2. Zip the files from `bin/Release/net9.0/publish/`.
-3. Upload zip to a GitHub release.
-4. Reference that asset in your Jellyfin plugin repository manifest.
+1. Publish release output:
+    ```bash
+    dotnet publish Jellyfin.Plugin.SyncPlayChat/Jellyfin.Plugin.SyncPlayChat.csproj -c Release
+    ```
+2. Zip the contents of `bin/Release/net9.0/publish/` (not the folder itself).
+3. Name the zip: `Jellyfin.Plugin.SyncPlayChat_10.11.0.zip`.
+4. Upload to GitHub release.
+5. Calculate SHA256 checksum and update `manifest.json`.
+6. Push `manifest.json` to your manifest repository.
 
-Plugin ID (must match manifest):
-
-- `a69744cc-2281-48bf-adef-8e451a16ff71`
+Plugin ID: `a69744cc-2281-48bf-adef-8e451a16ff71`
 
 ## Troubleshooting
 
 - Chat button does not appear:
-  - Verify user is in an active SyncPlay group.
-  - Verify File Transformation plugin is installed and enabled.
-  - Restart Jellyfin after plugin deploy/update.
+    - Verify user is in an active SyncPlay group.
+    - Verify File Transformation plugin is installed and enabled.
+    - Restart Jellyfin after plugin deploy/update.
 - Messages only appear on one device:
-  - Check browser console for `[SyncPlayChat]` send failure logs.
-  - Confirm target devices are active sessions visible to Jellyfin.
+    - Check browser console for `[SyncPlayChat]` send failure logs.
+    - Confirm target devices are active sessions visible to Jellyfin.
 
 ## License
 
