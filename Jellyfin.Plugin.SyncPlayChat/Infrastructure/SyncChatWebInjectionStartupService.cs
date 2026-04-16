@@ -62,16 +62,7 @@ public class SyncChatWebInjectionStartupService : IHostedService
                 return;
             }
 
-            Type? payloadType = registerTransformationMethod.GetParameters().FirstOrDefault()?.ParameterType;
-            MethodInfo? parseMethod = payloadType?.GetMethod("Parse", [typeof(string)]);
-
-            if (parseMethod is null)
-            {
-                _logger.LogWarning("Unable to resolve JSON payload parser for File Transformation API.");
-                return;
-            }
-
-            string payload = "{" +
+            string payloadJson = "{" +
                 $"\"id\":\"{TransformationId}\"," +
                 "\"fileNamePattern\":\"index.html\"," +
                 $"\"callbackAssembly\":\"{typeof(SyncChatWebTransformer).Assembly.FullName}\"," +
@@ -79,14 +70,31 @@ public class SyncChatWebInjectionStartupService : IHostedService
                 "\"callbackMethod\":\"TransformIndexHtml\"" +
                 "}";
 
-            object? parsedPayload = parseMethod.Invoke(null, [payload]);
-            if (parsedPayload is null)
+            Type? payloadType = registerTransformationMethod.GetParameters().FirstOrDefault()?.ParameterType;
+            object? payload;
+
+            if (payloadType?.Name == "String")
             {
-                _logger.LogWarning("Failed to create File Transformation payload; sync-chat.js was not registered.");
-                return;
+                payload = payloadJson;
+            }
+            else
+            {
+                MethodInfo? parseMethod = payloadType?.GetMethod("Parse", [typeof(string)]);
+                if (parseMethod is null)
+                {
+                    _logger.LogWarning("Unable to resolve JSON payload parser for File Transformation API.");
+                    return;
+                }
+
+                payload = parseMethod.Invoke(null, [payloadJson]);
+                if (payload is null)
+                {
+                    _logger.LogWarning("Failed to parse File Transformation payload.");
+                    return;
+                }
             }
 
-            registerTransformationMethod.Invoke(null, [parsedPayload]);
+            registerTransformationMethod.Invoke(null, [payload]);
             _logger.LogInformation("Registered File Transformation for sync-chat.js injection.");
         }
         catch (Exception ex)
