@@ -461,8 +461,6 @@
             ? window.ApiClient.getUrl(normalizedPath)
             : normalizedPath;
 
-        logDebug('Requesting API path', { path: normalizedPath, url: url });
-
         if (typeof window.ApiClient.ajax === 'function') {
             return window.ApiClient.ajax({
                 type: 'GET',
@@ -487,8 +485,6 @@
         const url = typeof window.ApiClient.getUrl === 'function'
             ? window.ApiClient.getUrl(normalizedPath)
             : normalizedPath;
-
-        logDebug('Posting API path', { path: normalizedPath, url: url, data: data });
 
         if (typeof window.ApiClient.ajax === 'function') {
             return window.ApiClient.ajax({
@@ -709,7 +705,6 @@
             const group = groups[i];
             const groupId = resolveSyncPlayGroupId(group);
             if (!groupId) {
-                logDebug('Could not resolve group ID from SyncPlay/List payload', { group: group });
                 continue;
             }
 
@@ -717,7 +712,6 @@
                 const details = await fetchJson('SyncPlay/' + encodeURIComponent(groupId));
                 if (details) {
                     detailGroups.push(details);
-                    logDebug('Fetched SyncPlay group details', { groupId: groupId, details: details });
                 }
             } catch (err) {
                 logDebug('Failed to fetch SyncPlay group details', { groupId: groupId, error: err });
@@ -815,12 +809,6 @@
             }
         });
 
-        logDebug('Preparing SyncPlay chat send', {
-            attemptedSessions: distinctIds.length,
-            text: text,
-            sessionIds: distinctIds
-        });
-
         const payload = {
             Header: 'SyncPlay Chat',
             Text: text,
@@ -855,13 +843,11 @@
 
     async function onChatButtonClick(chatText) {
         if (sendInProgress) {
-            logDebug('Ignoring click while previous send is in progress');
             return;
         }
 
         const trimmedText = typeof chatText === 'string' ? chatText.trim() : '';
         if (!trimmedText) {
-            logDebug('Ignoring send because chat text is empty');
             return;
         }
 
@@ -872,11 +858,6 @@
             const sessions = await fetchSessions();
             const groupsResponse = await fetchJson('SyncPlay/List');
             const groups = normalizeGroupsResponse(groupsResponse);
-
-            logDebug('Send click context', {
-                sessionsCount: sessions.length,
-                groupsCount: groups.length
-            });
 
             const currentSession = getCurrentSession(sessions);
             const senderName = (currentSession && currentSession.UserName)
@@ -892,12 +873,6 @@
                 return groupsContainCurrentUser([group], sessions);
             });
             const groupsForDetailLookup = relevantGroups.length > 0 ? relevantGroups : groups;
-
-            if (relevantGroups.length === 0 && groups.length > 0) {
-                logDebug('No directly matched group payload; falling back to all groups for detail lookup', {
-                    totalGroups: groups.length
-                });
-            }
 
             const groupDetailPayloads = await fetchSyncPlayGroupDetails(groupsForDetailLookup);
 
@@ -930,7 +905,6 @@
                 }
             });
 
-            const matchingUserSessions = sessions.filter(matchesCurrentUser);
             if (targetSessionIds.length <= localSessionIds.length) {
                 const otherSessionIds = sessions
                     .filter(function (session) {
@@ -944,32 +918,15 @@
                         targetSessionIds.push(id);
                     }
                 });
-
-                if (otherSessionIds.length > 0) {
-                    logDebug('Fallback added non-current-user sessions as potential SyncPlay targets', {
-                        matchingUserSessions: matchingUserSessions.length,
-                        addedSessionIds: otherSessionIds
-                    });
-                }
             }
-
-            logDebug('Resolved SyncPlay chat targets', {
-                senderName: senderName,
-                groupIds: groupIds,
-                fromSessionGroup: sessionIdsFromSessionGroup,
-                fromGroupPayload: sessionIdsFromGroupPayload,
-                fromGroupDetailsRaw: sessionIdsFromGroupDetails,
-                fromGroupDetailsKnown: sessionIdsFromGroupDetailsKnown,
-                localSessionIds: localSessionIds,
-                groupDetailsFetched: groupDetailPayloads.length,
-                targetSessionIds: targetSessionIds
-            });
 
             if (!targetSessionIds.length) {
                 logDebug('No target sessions resolved for sync chat send', {
-                    sessions: sessions,
-                    groups: groups,
-                    groupIds: groupIds
+                    sessionsCount: sessions.length,
+                    groupsCount: groups.length,
+                    groupIds: groupIds,
+                    localSessionIds: localSessionIds,
+                    resolvedTargets: targetSessionIds
                 });
                 showLocalToast('Could not resolve SyncPlay target sessions.');
                 return;
@@ -1022,8 +979,6 @@
             try {
                 const response = await fetchJson(path);
                 const sessions = normalizeSessionsResponse(response);
-                logDebug('Sessions response', { path: path, count: sessions.length, sessions: sessions });
-
                 sessions.forEach(function (session) {
                     const sessionId = session && session.Id;
                     if (typeof sessionId === 'string' && sessionId.length > 0) {
@@ -1046,12 +1001,6 @@
             return sessionsWithoutId;
         }
 
-        logDebug('Merged sessions result', {
-            pathsTried: paths,
-            dedupedCount: dedupedSessions.length,
-            noIdCount: sessionsWithoutId.length
-        });
-
         return dedupedSessions;
     }
 
@@ -1063,7 +1012,6 @@
         const sessions = await fetchSessions();
         if (sessions.length > 0) {
             const matchingUserSessions = sessions.filter(matchesCurrentUser);
-            logDebug('Matching user sessions', matchingUserSessions);
             if (matchingUserSessions.length > 0 && matchingUserSessions.some(hasSyncPlayGroup)) {
                 return true;
             }
@@ -1072,19 +1020,13 @@
         try {
             const groupsResponse = await fetchJson('SyncPlay/List');
             const groups = normalizeGroupsResponse(groupsResponse);
-            logDebug('SyncPlay groups response', { count: groups.length, groups: groups });
             if (groups.length > 0) {
                 if (groupsContainCurrentUser(groups, sessions)) {
-                    logDebug('SyncPlay membership matched by group payload', true);
                     return true;
                 }
 
                 const matchingUserSessions = sessions.filter(matchesCurrentUser);
                 if (matchingUserSessions.length > 0) {
-                    logDebug('SyncPlay membership inferred from non-empty group list', {
-                        groupCount: groups.length,
-                        matchingUserSessions: matchingUserSessions.length
-                    });
                     return true;
                 }
             }
@@ -1104,7 +1046,6 @@
 
         try {
             shouldShowButton = await isCurrentUserInSyncPlayGroup();
-            logDebug('Button visibility state updated', shouldShowButton);
         } catch (err) {
             logDebug('Failed to refresh SyncPlay state', err);
             return;
@@ -1155,7 +1096,6 @@
             return;
         }
 
-        logDebug('sync-chat.js loaded');
         window.__syncPlayChatLoaded = true;
 
         const observer = new MutationObserver(addButton);
