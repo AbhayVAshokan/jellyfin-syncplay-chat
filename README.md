@@ -6,6 +6,8 @@ Awesome! This guide is for you. Jellyfin plugins are written using the dotnet st
 
 - [Dotnet SDK 9.0](https://dotnet.microsoft.com/en-us/download/dotnet)
 
+- [File Transformation plugin](https://github.com/IAmParadox27/jellyfin-plugin-file-transformation) installed in Jellyfin (required for web script injection features like `sync-chat.js`)
+
 - An editor of your choice. Some free choices are:
 
    [Visual Studio Code](https://code.visualstudio.com)
@@ -33,14 +35,16 @@ What it does:
 Environment overrides:
 
 ```bash
-JELLYFIN_DATA_DIR="$HOME/Library/Application Support/jellyfin/data" \
-PLUGIN_DIR="$HOME/Library/Application Support/jellyfin/data/plugins/SyncPlayChat" \
+JELLYFIN_DATA_DIR="$HOME/Library/Application Support/jellyfin" \
+PLUGIN_DIR="$HOME/Library/Application Support/jellyfin/plugins/SyncPlayChat" \
 ./scripts/deploy-dev.sh
 ```
 
 Notes:
 
 - `PLUGIN_DIR` takes precedence over `JELLYFIN_DATA_DIR`.
+- Default `JELLYFIN_DATA_DIR` is `$HOME/Library/Application Support/jellyfin`.
+- `sync-chat.js` injection requires the Jellyfin `File Transformation` plugin to be installed and enabled.
 - Restart Jellyfin yourself after running the script.
 
 ## 0.5. Quickstarts
