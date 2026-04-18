@@ -7,6 +7,7 @@
     const refreshIntervalMs = 5000;
     let shouldShowButton = false;
     let refreshInProgress = false;
+    let sendInProgress = false;
 
     function normalizeId(value) {
         if (value === null || value === undefined) {
@@ -73,8 +74,25 @@
         button.style.border = '1px solid rgba(255, 255, 255, 0.25)';
         button.style.fontSize = '0.9rem';
         button.style.cursor = 'pointer';
-        button.addEventListener('click', function () {});
+        button.addEventListener('click', function () {
+            onChatButtonClick(button);
+        });
         return button;
+    }
+
+    function extractSyncPlayGroupId(session) {
+        const playState = session && session.PlayState;
+        const groupId = (session && session.PlayState && session.PlayState.SyncPlayGroupId)
+            || (session && session.PlayState && session.PlayState.SyncPlayGroup)
+            || (session && session.SyncPlayGroupId)
+            || (session && session.SyncPlayGroup)
+            || (session && session.SyncPlayGroup && session.SyncPlayGroup.Id)
+            || (playState && playState.SyncPlayGroup && playState.SyncPlayGroup.Id)
+            || (playState && playState.SyncPlayInfo && playState.SyncPlayInfo.GroupId)
+            || (session && session.AdditionalData && session.AdditionalData.SyncPlayGroupId)
+            || '';
+
+        return typeof groupId === 'string' ? groupId : '';
     }
 
     function removeExtraButtons() {
@@ -130,6 +148,26 @@
         return ids;
     }
 
+    function getCurrentUserName() {
+        if (!window.ApiClient) {
+            return '';
+        }
+
+        const serverInfo = window.ApiClient._serverInfo;
+        if (serverInfo && typeof serverInfo.UserName === 'string' && serverInfo.UserName.length > 0) {
+            return serverInfo.UserName;
+        }
+
+        if (window.Dashboard && window.Dashboard.getCurrentUser) {
+            const currentUser = window.Dashboard.getCurrentUser();
+            if (currentUser && typeof currentUser.Name === 'string' && currentUser.Name.length > 0) {
+                return currentUser.Name;
+            }
+        }
+
+        return '';
+    }
+
     function getCurrentDeviceId() {
         if (!window.ApiClient) {
             return '';
@@ -147,17 +185,31 @@
     }
 
     function hasSyncPlayGroup(session) {
-        const playState = session && session.PlayState;
-        const groupId = (session && session.PlayState && session.PlayState.SyncPlayGroupId)
-            || (session && session.PlayState && session.PlayState.SyncPlayGroup)
-            || (session && session.SyncPlayGroupId)
-            || (session && session.SyncPlayGroup)
-            || (session && session.SyncPlayGroup && session.SyncPlayGroup.Id)
-            || (playState && playState.SyncPlayGroup && playState.SyncPlayGroup.Id)
-            || (playState && playState.SyncPlayInfo && playState.SyncPlayInfo.GroupId)
-            || (session && session.AdditionalData && session.AdditionalData.SyncPlayGroupId);
+        return extractSyncPlayGroupId(session).length > 0;
+    }
 
-        return typeof groupId === 'string' && groupId.length > 0;
+    function collectStringValues(value, output) {
+        if (value === null || value === undefined) {
+            return;
+        }
+
+        if (typeof value === 'string') {
+            output.push(value);
+            return;
+        }
+
+        if (Array.isArray(value)) {
+            value.forEach(function (item) {
+                collectStringValues(item, output);
+            });
+            return;
+        }
+
+        if (typeof value === 'object') {
+            Object.keys(value).forEach(function (key) {
+                collectStringValues(value[key], output);
+            });
+        }
     }
 
     function normalizeSessionsResponse(response) {
@@ -227,13 +279,16 @@
 
     function buildSessionsPaths() {
         const userIds = getCurrentUserIds();
-        if (!userIds.length) {
-            return ['Sessions'];
-        }
+        const paths = ['Sessions'];
 
-        return userIds.map(function (id) {
-            return 'Sessions?UserId=' + encodeURIComponent(id);
+        userIds.forEach(function (id) {
+            const path = 'Sessions?UserId=' + encodeURIComponent(id);
+            if (paths.indexOf(path) === -1) {
+                paths.push(path);
+            }
         });
+
+        return paths;
     }
 
     async function fetchJson(path) {
@@ -263,6 +318,46 @@
         return null;
     }
 
+    async function postJson(path, data) {
+        if (!window.ApiClient) {
+            return null;
+        }
+
+        const normalizedPath = typeof path === 'string' && path.charAt(0) === '/' ? path.slice(1) : path;
+        const url = typeof window.ApiClient.getUrl === 'function'
+            ? window.ApiClient.getUrl(normalizedPath)
+            : normalizedPath;
+
+        logDebug('Posting API path', { path: normalizedPath, url: url, data: data });
+
+        if (typeof window.ApiClient.ajax === 'function') {
+            return window.ApiClient.ajax({
+                type: 'POST',
+                url: url,
+                contentType: 'application/json; charset=utf-8',
+                data: JSON.stringify(data || {})
+            });
+        }
+
+        if (typeof window.fetch === 'function') {
+            const response = await window.fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json; charset=utf-8'
+                },
+                body: JSON.stringify(data || {})
+            });
+
+            if (!response.ok) {
+                throw new Error('HTTP ' + response.status);
+            }
+
+            return null;
+        }
+
+        return null;
+    }
+
     function matchesCurrentUser(session) {
         const currentUserIds = getCurrentUserIds();
         if (!currentUserIds.length) {
@@ -281,6 +376,458 @@
             .filter(matchesCurrentUser)
             .map(function (session) { return session && session.Id; })
             .filter(function (id) { return typeof id === 'string' && id.length > 0; });
+    }
+
+    function getCurrentSession(sessions) {
+        const currentDeviceId = normalizeId(getCurrentDeviceId());
+        const matchingUserSessions = sessions.filter(matchesCurrentUser);
+
+        if (currentDeviceId) {
+            const exactDeviceSession = matchingUserSessions.find(function (session) {
+                return normalizeId(session && session.DeviceId) === currentDeviceId;
+            });
+
+            if (exactDeviceSession) {
+                return exactDeviceSession;
+            }
+        }
+
+        return matchingUserSessions.length > 0 ? matchingUserSessions[0] : null;
+    }
+
+    function mapKnownSessionIds(sessions) {
+        const map = {};
+        sessions.forEach(function (session) {
+            const sessionId = session && session.Id;
+            if (typeof sessionId === 'string' && sessionId.length > 0) {
+                map[normalizeId(sessionId)] = sessionId;
+            }
+        });
+
+        return map;
+    }
+
+    function filterSessionIdsToKnownSessions(sessionIds, sessions) {
+        const knownSessionIds = mapKnownSessionIds(sessions);
+        const filtered = [];
+
+        sessionIds.forEach(function (id) {
+            const knownId = knownSessionIds[normalizeId(id)];
+            if (knownId && filtered.indexOf(knownId) === -1) {
+                filtered.push(knownId);
+            }
+        });
+
+        return filtered;
+    }
+
+    function summarizeError(error) {
+        if (!error) {
+            return 'Unknown error';
+        }
+
+        if (typeof error === 'string') {
+            return error;
+        }
+
+        if (error.message) {
+            return error.message;
+        }
+
+        if (error.status || error.statusText) {
+            return 'HTTP ' + (error.status || 'unknown') + ' ' + (error.statusText || '').trim();
+        }
+
+        if (error.responseJSON) {
+            try {
+                return JSON.stringify(error.responseJSON);
+            } catch (jsonErr) {
+                return 'Response JSON serialization failed';
+            }
+        }
+
+        if (error.responseText) {
+            return String(error.responseText).slice(0, 500);
+        }
+
+        try {
+            return JSON.stringify(error).slice(0, 500);
+        } catch (jsonErr) {
+            return 'Unserializable error object';
+        }
+    }
+
+    function isLikelySessionId(value) {
+        if (typeof value !== 'string') {
+            return false;
+        }
+
+        const trimmed = value.trim();
+        return /^[a-f0-9]{32}$/i.test(trimmed) || /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(trimmed);
+    }
+
+    function resolveSyncPlayGroupId(group) {
+        const direct = (group && group.Id)
+            || (group && group.GroupId)
+            || (group && group.Group && group.Group.Id)
+            || (group && group.GroupInfo && group.GroupInfo.Id)
+            || '';
+
+        if (typeof direct === 'string' && direct.length > 0) {
+            return direct;
+        }
+
+        const values = [];
+        collectStringValues(group, values);
+        const possibleGroupId = values.find(function (value) {
+            return isLikelySessionId(value);
+        });
+
+        return possibleGroupId || '';
+    }
+
+    function extractLikelySessionIdsFromGroup(group) {
+        const fromSessionKeys = [];
+
+        function walk(value) {
+            if (value === null || value === undefined) {
+                return;
+            }
+
+            if (Array.isArray(value)) {
+                value.forEach(walk);
+                return;
+            }
+
+            if (typeof value !== 'object') {
+                return;
+            }
+
+            Object.keys(value).forEach(function (key) {
+                const child = value[key];
+                const normalizedKey = normalizeId(key);
+                if ((normalizedKey === 'sessionid' || normalizedKey.indexOf('sessionid') !== -1) && typeof child === 'string' && child.length > 0) {
+                    fromSessionKeys.push(child);
+                }
+                walk(child);
+            });
+        }
+
+        walk(group);
+
+        const values = [];
+        collectStringValues(group, values);
+
+        const unique = [];
+        fromSessionKeys.forEach(function (value) {
+            if (typeof value !== 'string' || value.length === 0) {
+                return;
+            }
+
+            if (unique.indexOf(value) === -1) {
+                unique.push(value);
+            }
+        });
+
+        values.forEach(function (value) {
+            if (!isLikelySessionId(value)) {
+                return;
+            }
+
+            if (unique.indexOf(value) === -1) {
+                unique.push(value);
+            }
+        });
+
+        return unique;
+    }
+
+    async function fetchSyncPlayGroupDetails(groups) {
+        const detailGroups = [];
+
+        for (let i = 0; i < groups.length; i += 1) {
+            const group = groups[i];
+            const groupId = resolveSyncPlayGroupId(group);
+            if (!groupId) {
+                logDebug('Could not resolve group ID from SyncPlay/List payload', { group: group });
+                continue;
+            }
+
+            try {
+                const details = await fetchJson('SyncPlay/' + encodeURIComponent(groupId));
+                if (details) {
+                    detailGroups.push(details);
+                    logDebug('Fetched SyncPlay group details', { groupId: groupId, details: details });
+                }
+            } catch (err) {
+                logDebug('Failed to fetch SyncPlay group details', { groupId: groupId, error: err });
+            }
+        }
+
+        return detailGroups;
+    }
+
+    function getGroupIdsForCurrentUserSessions(sessions) {
+        const groupIds = [];
+        sessions
+            .filter(matchesCurrentUser)
+            .forEach(function (session) {
+                const groupId = extractSyncPlayGroupId(session);
+                if (groupId && groupIds.indexOf(groupId) === -1) {
+                    groupIds.push(groupId);
+                }
+            });
+
+        return groupIds;
+    }
+
+    function findSessionIdsByGroupIds(sessions, groupIds) {
+        if (!groupIds.length) {
+            return [];
+        }
+
+        const normalizedGroupIds = groupIds.map(normalizeId).filter(Boolean);
+        return sessions
+            .filter(function (session) {
+                const sessionGroupId = normalizeId(extractSyncPlayGroupId(session));
+                return normalizedGroupIds.indexOf(sessionGroupId) !== -1;
+            })
+            .map(function (session) { return session && session.Id; })
+            .filter(function (id) { return typeof id === 'string' && id.length > 0; });
+    }
+
+    function findSessionIdsInGroupPayload(groups, sessions) {
+        if (!groups.length || !sessions.length) {
+            return [];
+        }
+
+        const normalizedSessionIds = {};
+        sessions.forEach(function (session) {
+            const sessionId = session && session.Id;
+            if (typeof sessionId === 'string' && sessionId.length > 0) {
+                normalizedSessionIds[normalizeId(sessionId)] = sessionId;
+            }
+        });
+
+        const matchingIds = [];
+
+        groups.forEach(function (group) {
+            if (!groupsContainCurrentUser([group], sessions)) {
+                return;
+            }
+
+            const values = [];
+            collectStringValues(group, values);
+            values.forEach(function (value) {
+                const normalizedValue = normalizeId(value);
+                const sessionId = normalizedSessionIds[normalizedValue];
+                if (sessionId && matchingIds.indexOf(sessionId) === -1) {
+                    matchingIds.push(sessionId);
+                }
+            });
+        });
+
+        return matchingIds;
+    }
+
+    function showLocalToast(text, title) {
+        if (window.toastr && typeof window.toastr.info === 'function') {
+            window.toastr.info(text, title || 'SyncPlay Chat');
+            return;
+        }
+
+        if (window.Dashboard && typeof window.Dashboard.alert === 'function') {
+            window.Dashboard.alert({
+                title: title || 'SyncPlay Chat',
+                message: text
+            });
+            return;
+        }
+
+        logDebug('Toast fallback', { title: title || 'SyncPlay Chat', text: text });
+    }
+
+    async function sendMessageToSessions(sessionIds, text) {
+        const distinctIds = [];
+        sessionIds.forEach(function (id) {
+            if (typeof id === 'string' && id.length > 0 && distinctIds.indexOf(id) === -1) {
+                distinctIds.push(id);
+            }
+        });
+
+        logDebug('Preparing SyncPlay chat send', {
+            attemptedSessions: distinctIds.length,
+            text: text,
+            sessionIds: distinctIds
+        });
+
+        const payload = {
+            Header: 'SyncPlay Chat',
+            Text: text,
+            TimeoutMs: 4000
+        };
+
+        const sendResults = await Promise.allSettled(distinctIds.map(function (sessionId) {
+            return postJson('Sessions/' + encodeURIComponent(sessionId) + '/Message', payload);
+        }));
+
+        const failed = [];
+        sendResults.forEach(function (result, index) {
+            if (result.status === 'rejected') {
+                failed.push({
+                    sessionId: distinctIds[index],
+                    reason: summarizeError(result.reason),
+                    rawReason: result.reason
+                });
+            }
+        });
+
+        if (failed.length > 0) {
+            logDebug('Session message failures', failed);
+        }
+
+        return {
+            attempted: distinctIds.length,
+            sent: distinctIds.length - failed.length,
+            failed: failed.length
+        };
+    }
+
+    async function onChatButtonClick(button) {
+        if (sendInProgress) {
+            logDebug('Ignoring click while previous send is in progress');
+            return;
+        }
+
+        sendInProgress = true;
+        if (button) {
+            button.disabled = true;
+            button.style.opacity = '0.75';
+        }
+
+        try {
+            const sessions = await fetchSessions();
+            const groupsResponse = await fetchJson('SyncPlay/List');
+            const groups = normalizeGroupsResponse(groupsResponse);
+
+            logDebug('Send click context', {
+                sessionsCount: sessions.length,
+                groupsCount: groups.length
+            });
+
+            const currentSession = getCurrentSession(sessions);
+            const senderName = (currentSession && currentSession.UserName)
+                || (currentSession && currentSession.User && currentSession.User.Name)
+                || getCurrentUserName()
+                || 'Someone';
+            const messageText = senderName + ': Hello';
+
+            const groupIds = getGroupIdsForCurrentUserSessions(sessions);
+            const sessionIdsFromSessionGroup = findSessionIdsByGroupIds(sessions, groupIds);
+            const sessionIdsFromGroupPayload = findSessionIdsInGroupPayload(groups, sessions);
+            const relevantGroups = groups.filter(function (group) {
+                return groupsContainCurrentUser([group], sessions);
+            });
+            const groupsForDetailLookup = relevantGroups.length > 0 ? relevantGroups : groups;
+
+            if (relevantGroups.length === 0 && groups.length > 0) {
+                logDebug('No directly matched group payload; falling back to all groups for detail lookup', {
+                    totalGroups: groups.length
+                });
+            }
+
+            const groupDetailPayloads = await fetchSyncPlayGroupDetails(groupsForDetailLookup);
+
+            const sessionIdsFromGroupDetails = [];
+            groupDetailPayloads.forEach(function (groupDetail) {
+                extractLikelySessionIdsFromGroup(groupDetail).forEach(function (id) {
+                    if (sessionIdsFromGroupDetails.indexOf(id) === -1) {
+                        sessionIdsFromGroupDetails.push(id);
+                    }
+                });
+            });
+            const sessionIdsFromGroupDetailsKnown = filterSessionIdsToKnownSessions(sessionIdsFromGroupDetails, sessions);
+
+            const localSessionIds = getCurrentSessionIds(sessions);
+
+            const targetSessionIds = sessionIdsFromSessionGroup.slice();
+            sessionIdsFromGroupPayload.forEach(function (id) {
+                if (targetSessionIds.indexOf(id) === -1) {
+                    targetSessionIds.push(id);
+                }
+            });
+            sessionIdsFromGroupDetailsKnown.forEach(function (id) {
+                if (targetSessionIds.indexOf(id) === -1) {
+                    targetSessionIds.push(id);
+                }
+            });
+            localSessionIds.forEach(function (id) {
+                if (targetSessionIds.indexOf(id) === -1) {
+                    targetSessionIds.push(id);
+                }
+            });
+
+            const matchingUserSessions = sessions.filter(matchesCurrentUser);
+            if (targetSessionIds.length <= localSessionIds.length) {
+                const otherSessionIds = sessions
+                    .filter(function (session) {
+                        return !matchesCurrentUser(session);
+                    })
+                    .map(function (session) { return session && session.Id; })
+                    .filter(function (id) { return typeof id === 'string' && id.length > 0; });
+
+                otherSessionIds.forEach(function (id) {
+                    if (targetSessionIds.indexOf(id) === -1) {
+                        targetSessionIds.push(id);
+                    }
+                });
+
+                if (otherSessionIds.length > 0) {
+                    logDebug('Fallback added non-current-user sessions as potential SyncPlay targets', {
+                        matchingUserSessions: matchingUserSessions.length,
+                        addedSessionIds: otherSessionIds
+                    });
+                }
+            }
+
+            logDebug('Resolved SyncPlay chat targets', {
+                senderName: senderName,
+                groupIds: groupIds,
+                fromSessionGroup: sessionIdsFromSessionGroup,
+                fromGroupPayload: sessionIdsFromGroupPayload,
+                fromGroupDetailsRaw: sessionIdsFromGroupDetails,
+                fromGroupDetailsKnown: sessionIdsFromGroupDetailsKnown,
+                localSessionIds: localSessionIds,
+                groupDetailsFetched: groupDetailPayloads.length,
+                targetSessionIds: targetSessionIds
+            });
+
+            if (!targetSessionIds.length) {
+                logDebug('No target sessions resolved for sync chat send', {
+                    sessions: sessions,
+                    groups: groups,
+                    groupIds: groupIds
+                });
+                showLocalToast('Could not resolve SyncPlay target sessions.');
+                return;
+            }
+
+            const result = await sendMessageToSessions(targetSessionIds, messageText);
+            logDebug('Sync chat send result', result);
+
+            if (result.sent === 0) {
+                showLocalToast('Failed to send SyncPlay chat message.');
+            }
+        } catch (err) {
+            logDebug('Failed to send SyncPlay chat message', err);
+            showLocalToast('Failed to send SyncPlay chat message.');
+        } finally {
+            sendInProgress = false;
+            if (button) {
+                button.disabled = false;
+                button.style.opacity = '1';
+            }
+        }
     }
 
     function groupsContainCurrentUser(groups, sessions) {
@@ -304,21 +851,45 @@
 
     async function fetchSessions() {
         const paths = buildSessionsPaths();
-        let fallbackSessions = [];
+        const sessionsById = {};
+        const sessionsWithoutId = [];
 
         for (let i = 0; i < paths.length; i += 1) {
-            const response = await fetchJson(paths[i]);
-            const sessions = normalizeSessionsResponse(response);
-            logDebug('Sessions response', { path: paths[i], count: sessions.length, sessions: sessions });
+            const path = paths[i];
+            try {
+                const response = await fetchJson(path);
+                const sessions = normalizeSessionsResponse(response);
+                logDebug('Sessions response', { path: path, count: sessions.length, sessions: sessions });
 
-            if (sessions.length > 0) {
-                return sessions;
+                sessions.forEach(function (session) {
+                    const sessionId = session && session.Id;
+                    if (typeof sessionId === 'string' && sessionId.length > 0) {
+                        sessionsById[sessionId] = session;
+                        return;
+                    }
+
+                    sessionsWithoutId.push(session);
+                });
+            } catch (err) {
+                logDebug('Failed to fetch sessions path', { path: path, error: err });
             }
-
-            fallbackSessions = sessions;
         }
 
-        return fallbackSessions;
+        const dedupedSessions = Object.keys(sessionsById).map(function (id) {
+            return sessionsById[id];
+        });
+
+        if (dedupedSessions.length === 0 && sessionsWithoutId.length > 0) {
+            return sessionsWithoutId;
+        }
+
+        logDebug('Merged sessions result', {
+            pathsTried: paths,
+            dedupedCount: dedupedSessions.length,
+            noIdCount: sessionsWithoutId.length
+        });
+
+        return dedupedSessions;
     }
 
     async function isCurrentUserInSyncPlayGroup() {
