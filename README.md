@@ -70,17 +70,27 @@ Install manually by copying publish output into a plugin folder such as:
 
 Then restart Jellyfin.
 
-## Packaging for Repository Distribution
+## Releasing a New Version
 
 1. Publish release output:
     ```bash
     dotnet publish Jellyfin.Plugin.SyncPlayChat/Jellyfin.Plugin.SyncPlayChat.csproj -c Release
     ```
-2. Zip the contents of `bin/Release/net9.0/publish/` (not the folder itself).
-3. Name the zip: `Jellyfin.Plugin.SyncPlayChat_<version>.zip`.
-4. Upload to GitHub release.
-5. Calculate SHA256 checksum and update `manifest.json`.
-6. Push `manifest.json` to your manifest repository.
+2. Zip the contents of `Jellyfin.Plugin.SyncPlayChat/bin/Release/net9.0/publish/` (not the folder itself):
+    ```bash
+    cd Jellyfin.Plugin.SyncPlayChat/bin/Release/net9.0/publish
+    zip -r Jellyfin.Plugin.SyncPlayChat_<version>.zip .
+    ```
+3. Create a new GitHub release with tag `v<version>` (e.g., `v1.0.2.0`).
+4. Attach the zip file (`Jellyfin.Plugin.SyncPlayChat_<version>.zip`) to the release.
+5. Add release notes in the release body describing what changed.
+6. Publish the release.
+
+The `release.yaml` workflow will automatically:
+- Compute the checksum of the attached zip.
+- Prepend a new version entry to `manifest.json`.
+- Update `Directory.Build.props` with the new version.
+- Commit and push to `master`.
 
 Plugin ID: `a69744cc-2281-48bf-adef-8e451a16ff71`
 
