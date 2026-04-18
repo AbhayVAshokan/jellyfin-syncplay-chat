@@ -14,6 +14,35 @@ Awesome! This guide is for you. Jellyfin plugins are written using the dotnet st
 
    [Mono Develop](https://www.monodevelop.com)
 
+## 0.6. Local Dev Deploy Script
+
+This repository includes `scripts/deploy-dev.sh` to speed up the plugin dev loop.
+
+From the repository root:
+
+```bash
+./scripts/deploy-dev.sh
+```
+
+What it does:
+
+- Builds the solution with `mise` and `dotnet publish`.
+- Copies the publish output into your Jellyfin plugin directory.
+- Prints the deployed plugin path.
+
+Environment overrides:
+
+```bash
+JELLYFIN_DATA_DIR="$HOME/Library/Application Support/jellyfin/data" \
+PLUGIN_DIR="$HOME/Library/Application Support/jellyfin/data/plugins/SyncPlayChat" \
+./scripts/deploy-dev.sh
+```
+
+Notes:
+
+- `PLUGIN_DIR` takes precedence over `JELLYFIN_DATA_DIR`.
+- Restart Jellyfin yourself after running the script.
+
 ## 0.5. Quickstarts
 
 We have a number of quickstart options available to speed you along the way.
