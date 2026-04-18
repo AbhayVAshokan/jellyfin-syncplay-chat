@@ -12,8 +12,8 @@
                 "changelog": "Add demo video; Handle FileTransformation RegisterTransformation API accepting string directly",
                 "targetAbi": "10.11.0.0",
                 "version": "1.0.1.0",
-                "sourceUrl": "https://github.com/user-attachments/files/26769561/Jellyfin.Plugin.SyncPlayChat_1.0.1.0.zip",
-                "checksum": "1ad8c3af4606236d6f4ca0ad574c848c",
+                "sourceUrl": "https://temp.abhay.app/Jellyfin.Plugin.SyncPlayChat_1.0.1.0.zip",
+                "checksum": "cd7d0559af2a817b673187f8a90787f3",
                 "timestamp": "2026-04-16T03:00:00"
             },
             {
