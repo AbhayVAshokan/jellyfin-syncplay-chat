@@ -77,7 +77,7 @@ Then restart Jellyfin.
     dotnet publish Jellyfin.Plugin.SyncPlayChat/Jellyfin.Plugin.SyncPlayChat.csproj -c Release
     ```
 2. Zip the contents of `bin/Release/net9.0/publish/` (not the folder itself).
-3. Name the zip: `Jellyfin.Plugin.SyncPlayChat_10.11.0.zip`.
+3. Name the zip: `Jellyfin.Plugin.SyncPlayChat_<version>.zip`.
 4. Upload to GitHub release.
 5. Calculate SHA256 checksum and update `manifest.json`.
 6. Push `manifest.json` to your manifest repository.
