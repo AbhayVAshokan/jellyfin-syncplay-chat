@@ -6,7 +6,7 @@
         "description": "Syncplay Chat adds a chat button during SyncPlay sessions and sends chat messages as Jellyfin toasts to devices in the same SyncPlay group.",
         "owner": "AbhayVAshokan",
         "category": "General",
-        "imageUrl": "https://raw.githubusercontent.com/AbhayVAshokan/jellyfin-syncplay-chat/main/assets/icon.jpg",
+        "imageUrl": "https://raw.githubusercontent.com/AbhayVAshokan/jellyfin-syncplay-chat/master/assets/icon.jpg",
         "versions": [
             {
                 "changelog": "Initial release",

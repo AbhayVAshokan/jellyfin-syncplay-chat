@@ -2,7 +2,7 @@
 
 `Syncplay Chat` adds a chat button during SyncPlay sessions and sends chat messages as Jellyfin toasts to devices in the same SyncPlay group.
 
-<video src="assets/recording.mp4" controls></video>
+https://github.com/user-attachments/assets/69be29fa-b328-45c5-9967-f9582b0dd7d1
 
 ## Pre-requisites
 
@@ -17,7 +17,7 @@
 2. Click ➕ and give the repository a name (e.g., "Jellfin SyncPlay Chat").
 3. Set the Repository URL to:
     ```
-    https://raw.githubusercontent.com/AbhayVAshokan/jellyfin-syncplay-chat/main/manifest.json
+    https://raw.githubusercontent.com/AbhayVAshokan/jellyfin-syncplay-chat/master/manifest.json
     ```
 4. Click Save.
 5. Go to the Catalog tab, find `SyncPlay Chat` in the list, and click Install.
