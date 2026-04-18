@@ -496,7 +496,7 @@
         return null;
     }
 
-    async function postJson(path, data) {
+    async function postJson(path, data, expectJsonResponse) {
         if (!window.ApiClient) {
             return null;
         }
@@ -507,12 +507,18 @@
             : normalizedPath;
 
         if (typeof window.ApiClient.ajax === 'function') {
-            return window.ApiClient.ajax({
+            const request = {
                 type: 'POST',
                 url: url,
                 contentType: 'application/json; charset=utf-8',
                 data: JSON.stringify(data || {})
-            });
+            };
+
+            if (expectJsonResponse) {
+                request.dataType = 'json';
+            }
+
+            return window.ApiClient.ajax(request);
         }
 
         if (typeof window.fetch === 'function') {
@@ -526,6 +532,10 @@
 
             if (!response.ok) {
                 throw new Error('HTTP ' + response.status);
+            }
+
+            if (expectJsonResponse) {
+                return response.json();
             }
 
             return null;
@@ -1021,43 +1031,79 @@
         logDebug('Toast fallback', { title: title || 'SyncPlay Chat', text: text });
     }
 
-    async function sendMessageToSessions(sessionIds, text) {
-        const distinctIds = [];
-        sessionIds.forEach(function (id) {
-            if (typeof id === 'string' && id.length > 0 && distinctIds.indexOf(id) === -1) {
-                distinctIds.push(id);
+    function extractParticipantsFromGroups(groups) {
+        const participants = [];
+
+        groups.forEach(function (group) {
+            const groupParticipants = group && group.Participants;
+            if (!Array.isArray(groupParticipants)) {
+                return;
             }
+
+            groupParticipants.forEach(function (participant) {
+                if (typeof participant === 'string' && participant.length > 0 && participants.indexOf(participant) === -1) {
+                    participants.push(participant);
+                    return;
+                }
+
+                if (participant && typeof participant === 'object') {
+                    const userName = participant.UserName || (participant.User && participant.User.Name) || '';
+                    const deviceName = participant.DeviceName || participant.Device || '';
+
+                    if (typeof userName === 'string' && userName.length > 0 && participants.indexOf(userName) === -1) {
+                        participants.push(userName);
+                    }
+
+                    if (typeof deviceName === 'string' && deviceName.length > 0 && participants.indexOf(deviceName) === -1) {
+                        participants.push(deviceName);
+                    }
+                }
+            });
         });
 
-        const payload = {
+        return participants;
+    }
+
+    async function sendMessageViaServer(text, senderSessionId, groupId, participants) {
+        const response = await postJson('SyncPlayChat/Send', {
+            GroupId: groupId || '',
+            SenderSessionId: senderSessionId || '',
             Header: 'SyncPlay Chat',
             Text: text,
-            TimeoutMs: 4000
-        };
+            TimeoutMs: 4000,
+            ParticipantsCsv: (participants || []).join(',')
+        }, true);
 
-        const sendResults = await Promise.allSettled(distinctIds.map(function (sessionId) {
-            return postJson('Sessions/' + encodeURIComponent(sessionId) + '/Message', payload);
-        }));
-
-        const failed = [];
-        sendResults.forEach(function (result, index) {
-            if (result.status === 'rejected') {
-                failed.push({
-                    sessionId: distinctIds[index],
-                    reason: summarizeError(result.reason),
-                    rawReason: result.reason
+        let normalized = response;
+        if (typeof normalized === 'string') {
+            try {
+                normalized = JSON.parse(normalized);
+            } catch (parseError) {
+                logDebug('Failed to parse server chat send response JSON', {
+                    response: response,
+                    error: parseError
                 });
+                normalized = null;
             }
-        });
+        }
 
-        if (failed.length > 0) {
-            logDebug('Session message failures', failed);
+        if (normalized && typeof normalized === 'object' && normalized.responseJSON && typeof normalized.responseJSON === 'object') {
+            normalized = normalized.responseJSON;
+        }
+
+        if (!normalized || typeof normalized !== 'object') {
+            logDebug('Unexpected server chat send response shape', { response: response, normalized: normalized });
+            return {
+                attempted: 0,
+                sent: 0,
+                failed: 0
+            };
         }
 
         return {
-            attempted: distinctIds.length,
-            sent: distinctIds.length - failed.length,
-            failed: failed.length
+            attempted: Number(normalized.Attempted) || 0,
+            sent: Number(normalized.Sent) || 0,
+            failed: Number(normalized.Failed) || 0
         };
     }
 
@@ -1103,77 +1149,18 @@
                 groupsForDetailLookup = [groups[0]];
             }
 
-            const groupDetailPayloads = await fetchSyncPlayGroupDetails(groupsForDetailLookup);
+            const participantsForSend = extractParticipantsFromGroups(groupsForDetailLookup.length > 0 ? groupsForDetailLookup : groups);
+            let result;
+            const preferredGroupId = groupIds.length > 0 ? groupIds[0] : resolveSyncPlayGroupId(groupsForDetailLookup[0] || groups[0]);
+            result = await sendMessageViaServer(
+                messageText,
+                currentSession && currentSession.Id,
+                preferredGroupId,
+                participantsForSend);
 
-            const participantTokens = extractParticipantTokens(groupDetailPayloads);
-            const participantSessions = await fetchSessionsForUserIds(participantTokens.userIds);
-            const allKnownSessions = mergeSessionsUnique(sessions, participantSessions);
-
-            const sessionIdsFromGroupDetails = [];
-            groupDetailPayloads.forEach(function (groupDetail) {
-                extractLikelySessionIdsFromGroup(groupDetail).forEach(function (id) {
-                    if (sessionIdsFromGroupDetails.indexOf(id) === -1) {
-                        sessionIdsFromGroupDetails.push(id);
-                    }
-                });
-            });
-            const sessionIdsFromGroupDetailsKnown = filterSessionIdsToKnownSessions(sessionIdsFromGroupDetails, allKnownSessions);
-
-            const participantSessionIdsByName = allKnownSessions
-                .filter(function (session) {
-                    const sessionUserName = (session && session.UserName)
-                        || (session && session.User && session.User.Name)
-                        || '';
-                    return participantTokens.userNames.some(function (userName) {
-                        return normalizeId(userName) === normalizeId(sessionUserName);
-                    });
-                })
-                .map(function (session) { return session && session.Id; })
-                .filter(function (id) { return typeof id === 'string' && id.length > 0; });
-
-            const localSessionIds = getCurrentSessionIds(sessions);
-
-            const targetSessionIds = sessionIdsFromSessionGroup.slice();
-            sessionIdsFromGroupPayload.forEach(function (id) {
-                if (targetSessionIds.indexOf(id) === -1) {
-                    targetSessionIds.push(id);
-                }
-            });
-            sessionIdsFromGroupDetailsKnown.forEach(function (id) {
-                if (targetSessionIds.indexOf(id) === -1) {
-                    targetSessionIds.push(id);
-                }
-            });
-            participantSessionIdsByName.forEach(function (id) {
-                if (targetSessionIds.indexOf(id) === -1) {
-                    targetSessionIds.push(id);
-                }
-            });
-            localSessionIds.forEach(function (id) {
-                if (targetSessionIds.indexOf(id) === -1) {
-                    targetSessionIds.push(id);
-                }
-            });
-
-            if (!targetSessionIds.length) {
-                logDebug('No target sessions resolved for sync chat send', {
-                    sessionsCount: sessions.length,
-                    groupsCount: groups.length,
-                    groupIds: groupIds,
-                    groupsBySessionGroupIds: groupsBySessionGroupIds.length,
-                    relevantGroups: relevantGroups.length,
-                    groupsForDetailLookup: groupsForDetailLookup.length,
-                    localSessionIds: localSessionIds,
-                    resolvedTargets: targetSessionIds
-                });
-                showLocalToast('Could not resolve SyncPlay target sessions.');
-                return;
-            }
-
-            const result = await sendMessageToSessions(targetSessionIds, messageText);
             logDebug('Sync chat send result', result);
 
-            if (result.sent > 0) {
+            if (result && result.sent > 0) {
                 clearComposerInput();
                 hideComposer();
             } else {
